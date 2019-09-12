@@ -10,11 +10,14 @@ use @cImport({
 
 use @import("wgpu.zig");
 
-fn loadSPIRVSrc(alloc: *Allocator, path: []const u8) !WGPUU32Array {
-    var contents = try std.io.readFileAlloc(alloc, "triangle.vert.spv");
+fn loadSPIRVSrc(path: []const u8) !WGPUU32Array {
+    var file = try std.fs.File.openRead(path);
+    var size = (try file.stat()).size;
+
     return WGPUU32Array {
-        .bytes = @ptrCast(*u32, @alignCast(4, contents.ptr)),
-        .length = contents.len
+        // No point in reading it into actual memory if we're just going to upload it to the GPU again
+        .bytes = @ptrCast([*]u32, (try std.os.mmap(null, size, std.os.PROT_READ, std.os.MAP_SHARED, file.handle, 0)).ptr),
+        .length = size
     };
 }
 
@@ -44,11 +47,11 @@ pub fn main() anyerror!void {
     });
 
     var vertShader = wgpu_device_create_shader_module(device, &WGPUShaderModuleDescriptor {
-        .code = try loadSPIRVSrc(&arena.allocator, "triangle.vert.spv")
+        .code = try loadSPIRVSrc("triangle.vert.spv")
     });
 
     var fragShader = wgpu_device_create_shader_module(device, &WGPUShaderModuleDescriptor {
-        .code = try loadSPIRVSrc(&arena.allocator, "triangle.frag.spv")
+        .code = try loadSPIRVSrc("triangle.frag.spv")
     });
 
     var bindGroupLayout = wgpu_device_create_bind_group_layout(device, &WGPUBindGroupLayoutDescriptor {
