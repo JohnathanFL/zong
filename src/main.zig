@@ -11,9 +11,9 @@ use @cImport({
 use @import("wgpu.zig");
 
 fn loadSPIRVSrc(alloc: *Allocator, path: []const u8) !WGPUU32Array {
-    var contents = try std.io.readFileAllocAligned(alloc, "triangle.vert.spv", 4);
+    var contents = try std.io.readFileAlloc(alloc, "triangle.vert.spv");
     return WGPUU32Array {
-        .bytes = @ptrCast(*u32, contents.ptr),
+        .bytes = @ptrCast(*u32, @alignCast(4, contents.ptr)),
         .length = contents.len
     };
 }
@@ -30,7 +30,7 @@ pub fn main() anyerror!void {
     if(window == null) unreachable;
 
     var adapter = wgpu_request_adapter(&WGPURequestAdapterOptions {
-        .power_preference = WGPUPowerPreference.WGPUPowerPreference_LowPower,
+        .power_preference = WGPUPowerPreference.HighPerformance,
         .backends = 2 | 4 | 8
     });
 
@@ -68,7 +68,7 @@ pub fn main() anyerror!void {
 
     var renderPipeline = wgpu_device_create_render_pipeline(device, &WGPURenderPipelineDescriptor {
         .layout = pipelineLayout,
-        .vertex_stage = &WGPUProgrammableStageDescriptor {
+        .vertex_stage = WGPUProgrammableStageDescriptor {
             .module = vertShader,
             .entry_point = c"main"
         },
@@ -77,35 +77,37 @@ pub fn main() anyerror!void {
             .entry_point = c"main"
         },
         .rasterization_state = &WGPURasterizationStateDescriptor {
-            .front_face = WGPUFrontFace_Ccw,
-            .cull_mode = WGPUCullMode_None,
+            .front_face = WGPUFrontFace.Ccw,
+            .cull_mode = WGPUCullMode.None,
             .depth_bias = 0,
             .depth_bias_slope_scale = 0.0,
             .depth_bias_clamp = 0.0
         },
-        .primitive_topology = WGPUPrimitiveTopology_TriangleList,
+        .primitive_topology = WGPUPrimitiveTopology.TriangleList,
         .color_states = &WGPUColorStateDescriptor {
-            .format = WGPUTextureFormat_Bgra8Unorn,
+            .format = WGPUTextureFormat.Bgra8Unorm,
             .alpha_blend = WGPUBlendDescriptor {
-                .src_factor = WGPUBlendFactor_One,
-                .dst_factor = WGPUBlendFactor_Zero,
-                .operation = WGPUBlendOperation_Add
+                .src_factor = WGPUBlendFactor.One,
+                .dst_factor = WGPUBlendFactor.Zero,
+                .operation = WGPUBlendOperation.Add
             },
             .color_blend = WGPUBlendDescriptor {
-                .src_factor = WGPUBlendFactor_One,
-                .dst_factor = WGPUBlendFactor_Zero,
-                .operation = WGPUBlendOperation_Add
+                .src_factor = WGPUBlendFactor.One,
+                .dst_factor = WGPUBlendFactor.Zero,
+                .operation = WGPUBlendOperation.Add
             },
-            .write_mask = WGPUColorWrite_All
+            .write_mask = WGPUColorWrite.All
         },
         .color_states_length = 1,
         .depth_stencil_state = null,
         .vertex_input = WGPUVertexInputDescriptor {
-            .index_format = WGPUIndexFormat_Uint16,
+            .index_format = WGPUIndexFormat.Uint16,
             .vertex_buffers = null,
             .vertex_buffers_length = 0
         },
-        .sample_count = 1
+        .sample_count = 1,
+        .sample_mask = 0,
+        .alpha_to_coverage_enabled = false,
     });
 
 
