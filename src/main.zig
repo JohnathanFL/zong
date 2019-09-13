@@ -8,17 +8,16 @@ use @cImport({
     @cInclude("GLFW/glfw3native.h");
 });
 
-use @import("wgpu.zig");
+const wgpu = @import("wgpu.zig");
 
-fn loadSPIRVSrc(path: []const u8) !WGPUU32Array {
+fn loadSPIRVSrc(path: []const u8) anyerror![]u32 {
     var file = try std.fs.File.openRead(path);
     var size = (try file.stat()).size;
+    // No point in reading it into actual memory if we're just going to upload it to the GPU directly
+    var res = try std.os.mmap(null, size, std.os.PROT_READ, std.os.MAP_SHARED, file.handle, 0);
 
-    return WGPUU32Array {
-        // No point in reading it into actual memory if we're just going to upload it to the GPU again
-        .bytes = @ptrCast([*]u32, (try std.os.mmap(null, size, std.os.PROT_READ, std.os.MAP_SHARED, file.handle, 0)).ptr),
-        .length = size
-    };
+    
+    return @bytesToSlice(u32, res);
 }
 
 pub fn main() anyerror!void {
@@ -32,79 +31,76 @@ pub fn main() anyerror!void {
     var window = glfwCreateWindow(1600, 900, c"Zong", null, null);
     if(window == null) unreachable;
 
-    var adapter = wgpu_request_adapter(&WGPURequestAdapterOptions {
-        .power_preference = WGPUPowerPreference.HighPerformance,
+
+
+    var adapter = wgpu.requestAdapter(wgpu.RequestAdapterOptions {
+        .power_preference = wgpu.PowerPreference.HighPerformance,
         .backends = 2 | 4 | 8
     });
 
-    var device = wgpu_adapter_request_device(adapter, &WGPUDeviceDescriptor {
-        .extensions = WGPUExtensions {
+    var device = adapter.requestDevice(wgpu.Device.Descriptor {
+        .extensions = wgpu.Extensions {
             .anisotropic_filtering = false
         },
-        .limits = WGPULimits {
+        .limits = wgpu.Limits {
             .max_bind_groups = 255
         },
     });
+    
+    var vertShader = device.createShaderModule(try loadSPIRVSrc("triangle.vert.spv"));
+    var fragShader = device.createShaderModule(try loadSPIRVSrc("triangle.vert.spv"));
 
-    var vertShader = wgpu_device_create_shader_module(device, &WGPUShaderModuleDescriptor {
-        .code = try loadSPIRVSrc("triangle.vert.spv")
-    });
-
-    var fragShader = wgpu_device_create_shader_module(device, &WGPUShaderModuleDescriptor {
-        .code = try loadSPIRVSrc("triangle.frag.spv")
-    });
-
-    var bindGroupLayout = wgpu_device_create_bind_group_layout(device, &WGPUBindGroupLayoutDescriptor {
+    var bindGroupLayout = device.createBindGroupLayout(wgpu.BindGroupLayout.Descriptor {
         .bindings = null,
         .bindings_length = 0,
     });
-    var bindGroup = wgpu_device_create_bind_group(device, &WGPUBindGroupDescriptor {
-        .layout = bindGroupLayout,
+    var bindGroup = device.createBindGroup(wgpu.BindGroup.Descriptor {
+        .layout = bindGroupLayout.id,
         .bindings = null,
         .bindings_length = 0,
     });
-    var bindGroupLayouts = [_]WGPUBindGroupLayoutId {bindGroupLayout};
-    var pipelineLayout = wgpu_device_create_pipeline_layout(device, &WGPUPipelineLayoutDescriptor {
+    var bindGroupLayouts = [_]wgpu.BindGroupLayout.ID {bindGroupLayout.id};
+    var pipelineLayout = device.createPipelineLayout(wgpu.PipelineLayout.Descriptor {
         .bind_group_layouts = bindGroupLayouts[0..].ptr,
         .bind_group_layouts_length = bindGroupLayouts.len
     });
 
-    var renderPipeline = wgpu_device_create_render_pipeline(device, &WGPURenderPipelineDescriptor {
-        .layout = pipelineLayout,
-        .vertex_stage = WGPUProgrammableStageDescriptor {
-            .module = vertShader,
+    var renderPipeline = device.createRenderPipeline(wgpu.RenderPipeline.Descriptor {
+        .layout = pipelineLayout.id,
+        .vertex_stage = wgpu.ProgrammableStageDescriptor {
+            .module = vertShader.id,
             .entry_point = c"main"
         },
-        .fragment_stage = &WGPUProgrammableStageDescriptor {
-            .module = fragShader,
+        .fragment_stage = &wgpu.ProgrammableStageDescriptor {
+            .module = fragShader.id,
             .entry_point = c"main"
         },
-        .rasterization_state = &WGPURasterizationStateDescriptor {
-            .front_face = WGPUFrontFace.Ccw,
-            .cull_mode = WGPUCullMode.None,
+        .rasterization_state = &wgpu.RasterizationStateDescriptor {
+            .front_face = wgpu.FrontFace.Ccw,
+            .cull_mode = wgpu.CullMode.None,
             .depth_bias = 0,
             .depth_bias_slope_scale = 0.0,
             .depth_bias_clamp = 0.0
         },
-        .primitive_topology = WGPUPrimitiveTopology.TriangleList,
-        .color_states = &WGPUColorStateDescriptor {
-            .format = WGPUTextureFormat.Bgra8Unorm,
-            .alpha_blend = WGPUBlendDescriptor {
-                .src_factor = WGPUBlendFactor.One,
-                .dst_factor = WGPUBlendFactor.Zero,
-                .operation = WGPUBlendOperation.Add
+        .primitive_topology = wgpu.PrimitiveTopology.TriangleList,
+        .color_states = &wgpu.ColorStateDescriptor {
+            .format = wgpu.TextureFormat.Bgra8Unorm,
+            .alpha_blend = wgpu.BlendDescriptor {
+                .src_factor = wgpu.BlendFactor.One,
+                .dst_factor = wgpu.BlendFactor.Zero,
+                .operation = wgpu.BlendOperation.Add
             },
-            .color_blend = WGPUBlendDescriptor {
-                .src_factor = WGPUBlendFactor.One,
-                .dst_factor = WGPUBlendFactor.Zero,
-                .operation = WGPUBlendOperation.Add
+            .color_blend = wgpu.BlendDescriptor {
+                .src_factor = wgpu.BlendFactor.One,
+                .dst_factor = wgpu.BlendFactor.Zero,
+                .operation = wgpu.BlendOperation.Add
             },
-            .write_mask = WGPUColorWrite.All
+            .write_mask = wgpu.ColorWrite.All
         },
         .color_states_length = 1,
         .depth_stencil_state = null,
-        .vertex_input = WGPUVertexInputDescriptor {
-            .index_format = WGPUIndexFormat.Uint16,
+        .vertex_input = wgpu.VertexInputDescriptor {
+            .index_format = wgpu.IndexFormat.Uint16,
             .vertex_buffers = null,
             .vertex_buffers_length = 0
         },
@@ -112,7 +108,4 @@ pub fn main() anyerror!void {
         .sample_mask = 0,
         .alpha_to_coverage_enabled = false,
     });
-
-
-    
 }
