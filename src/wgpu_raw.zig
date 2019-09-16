@@ -488,7 +488,15 @@ pub const WGPUShaderModuleDescriptor = extern struct {
 };
 pub const WGPUId_SwapChain_Dummy = u64;
 pub const WGPUSwapChainId = WGPUId_SwapChain_Dummy;
-pub const WGPUTextureUsage = u32;
+pub const WGPUTextureUsage = extern enum {
+    Sampled = 4,
+    Storage = 8,
+    CopySrc = 1,
+    None = 0,
+    CopyDest = 2,
+    OutputAttachment = 16,
+    Uninitialized = 65535,
+};
 pub const WGPUSwapChainDescriptor = extern struct {
     usage: WGPUTextureUsage,
     format: WGPUTextureFormat,

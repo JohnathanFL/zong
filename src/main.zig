@@ -1,9 +1,10 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 
 use @cImport({
-    @cDefine("GLFW_EXPOSE_NATIVE_WAYLAND", "1");
+    @cDefine("GLFW_EXPOSE_NATIVE_X11", "1");
     @cInclude("GLFW/glfw3.h");
     @cInclude("GLFW/glfw3native.h");
 });
@@ -20,16 +21,32 @@ fn loadSPIRVSrc(path: []const u8) anyerror![]u32 {
     return @bytesToSlice(u32, res);
 }
 
+const Size = struct {
+    width: c_int,
+    height: c_int,
+    fn from(window: ?*GLFWwindow) @This() {
+        var size: Size = undefined;
+        glfwGetWindowSize(window, &size.width, &size.height);
+        return size;
+    }
+
+    fn eq(self: @This(), other: @This()) bool {
+        return (self.width == other.width) and (self.height == other.height);
+    }
+};
+
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
     defer arena.deinit();
 
 
-    if (glfwInit() != 1) unreachable; // Lazy error checking for now
+    assert(glfwInit() == 1);
+    defer glfwTerminate();
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     var window = glfwCreateWindow(1600, 900, c"Zong", null, null);
-    if(window == null) unreachable;
+    assert(window != null);
+    defer glfwDestroyWindow(window);
 
 
 
@@ -108,4 +125,62 @@ pub fn main() anyerror!void {
         .sample_mask = 0,
         .alpha_to_coverage_enabled = false,
     });
+
+    var xlibDisplay = glfwGetX11Display();
+    var xlibWindow = glfwGetX11Window(window);
+    var surface = wgpu.Surface.fromXlib(@ptrCast(*?*c_void, &xlibDisplay), xlibWindow);
+
+    
+
+    var size = Size{.width = -1, .height = -1};
+
+    var swapChain: wgpu.SwapChain = undefined;
+
+    while (glfwWindowShouldClose(window) != 1) {
+        var curSize = Size.from(window) ;
+        if (!size.eq(curSize)) {
+            size = curSize;
+            swapChain = device.createSwapChain(surface, wgpu.SwapChain.Descriptor {
+                .usage = wgpu.TextureUsage.OutputAttachment,
+                .format = wgpu.TextureFormat.Bgra8Unorm,
+                .width = @intCast(u32, size.width),
+                .height = @intCast(u32, size.height),
+                .present_mode = wgpu.PresentMode.Vsync
+            });
+        }
+
+        var nextTexture = swapChain.nextTexture();
+        var encoder = device.createCommandEncoder();
+        var colorAttachments = [1]wgpu.RenderPassColorAttachmentDescriptor {
+            wgpu.RenderPassColorAttachmentDescriptor{
+                .attachment = nextTexture.view_id,
+                .load_op = wgpu.LoadOp.Clear,
+                .store_op = wgpu.StoreOp.Store,
+                .clear_color = wgpu.Color {.r = 46.0 / 255.0, .g = 52.0 / 255.0, .b = 64.0 / 255.0, .a = 1.0}, // TODO: Make WGPUColorWrite a proper enum
+                .resolve_target = null
+            }
+        };
+    
+        var renderPass = encoder.beginRenderPass(wgpu.RenderPass.Descriptor {
+            .color_attachments = &colorAttachments,
+            .color_attachments_length = colorAttachments.len,
+            .depth_stencil_attachment = null
+        });
+
+        renderPass.setPipeline(renderPipeline);
+        renderPass.setBindGroup(0, bindGroup, [0]u64{});
+        renderPass.draw(3, 1, 0, 0);
+
+        var queue = device.getQueue();
+        renderPass.end();
+
+        var cmdBuff = encoder.finish();
+        queue.submit(([_]wgpu.CommandBuffer.ID{cmdBuff.id})[0..]);
+        
+        swapChain.present();
+
+        glfwPollEvents();
+    }
+
+
 }
